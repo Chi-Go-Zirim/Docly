@@ -62,8 +62,18 @@ import { GoogleGenAI } from "@google/genai";
 
 const WEBHOOK_URL = 'YOUR_N8N_WEBHOOK_URL_HERE';
 
-// Initialize Gemini
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiClient: GoogleGenAI | null = null;
+
+function getAiClient() {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY is not defined. Please set it in your environment variables.');
+    }
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+}
 
 type UploadStatus = 'idle' | 'uploading' | 'success' | 'error';
 
@@ -213,6 +223,7 @@ export default function App() {
         Please provide a helpful, concise answer based on the context of being a document assistant.
       `;
 
+      const ai = getAiClient();
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: prompt,
