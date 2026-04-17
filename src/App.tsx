@@ -115,10 +115,12 @@ export default function App() {
       if (err.name === 'AbortError') {
         errorMessage = 'The upload took too long and timed out. Please check your internet connection or webhook server.';
       } else if (err.message === 'Failed to fetch') {
-        errorMessage = 'Network Error: Failed to connect to the webhook. This could be due to CORS issues, a down server, or trying to hit an HTTP URL from an HTTPS site.';
+        errorMessage = 'Network Error: Failed to connect to the webhook. Most likely, n8n is blocking the request due to CORS or it is using an insecure HTTP URL.';
         
         if (WEBHOOK_URL.startsWith('http://') && window.location.protocol === 'https:') {
-          errorMessage += ' (Mixed Content: Browser blocked a request to an insecure HTTP webhook from this HTTPS site. Please use HTTPS for your webhook.)';
+          errorMessage += ' (Mixed Content: Your webhook is HTTP but this site is HTTPS. Browsers block insecure requests. Please use an HTTPS webhook URL.)';
+        } else {
+          errorMessage += ' Ensure your n8n environment has N8N_CORS_ALLOWED_ORIGINS="*" or includes this app\'s domain.';
         }
       }
       
