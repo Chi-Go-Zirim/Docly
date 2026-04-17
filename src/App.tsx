@@ -105,12 +105,6 @@ export default function App() {
 
         setUploadStatus('success');
       }
-      
-      // Auto reset after success
-      setTimeout(() => {
-        setUploadStatus('idle');
-        setUploadFile(null);
-      }, 3000);
 
     } catch (err: any) {
       clearTimeout(timeoutId);
@@ -186,10 +180,6 @@ export default function App() {
                         setUploadStatus('uploading');
                         setTimeout(() => {
                           setUploadStatus('success');
-                          setTimeout(() => {
-                            setUploadStatus('idle');
-                            setUploadFile(null);
-                          }, 2000);
                         }, 1200);
                       }}
                     >
