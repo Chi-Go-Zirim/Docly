@@ -109,6 +109,7 @@ export default function App() {
   const [uploadEmail, setUploadEmail] = useState('');
   const [uploadDocType, setUploadDocType] = useState('research_paper');
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -158,6 +159,7 @@ export default function App() {
     if (!uploadFile) return;
 
     setUploadStatus('uploading');
+    setUploadError(null);
 
     const formData = new FormData();
     formData.append('file', uploadFile);
@@ -167,33 +169,49 @@ export default function App() {
 
     try {
       if (!WEBHOOK_URL || WEBHOOK_URL.includes('your-n8n-instance')) {
-        throw new Error('N8N Webhook URL is not configured. Please set VITE_N8N_WEBHOOK_URL in your .env file.');
+        // Provide a clearer error or a graceful degradation
+        console.warn('Webhook not configured. Using simulation mode for demo.');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        const newSource: Source = {
+          id: Math.random().toString(36).substring(7),
+          name: uploadFile.name,
+          size: uploadFile.size,
+          type: uploadFile.type,
+          docType: uploadDocType,
+          uploadedAt: new Date(),
+          summary: `[DEMO MODE] This is a simulated summary for ${uploadFile.name}. To use real processing, configure VITE_N8N_WEBHOOK_URL in your .env file.`
+        };
+
+        setSources(prev => [newSource, ...prev]);
+        setActiveSourceId(newSource.id);
+        setUploadStatus('success');
+      } else {
+        const res = await fetch(WEBHOOK_URL, { 
+          method: 'POST', 
+          body: formData 
+        });
+
+        if (!res.ok) {
+          throw new Error(`Upload failed with status: ${res.status}. Check your webhook configuration.`);
+        }
+
+        const result = await res.json().catch(() => ({}));
+        
+        const newSource: Source = {
+          id: Math.random().toString(36).substring(7),
+          name: uploadFile.name,
+          size: uploadFile.size,
+          type: uploadFile.type,
+          docType: uploadDocType,
+          uploadedAt: new Date(),
+          summary: result.summary || result.text || `Successfully processed ${uploadFile.name}. No summary was returned from the webhook.`
+        };
+
+        setSources(prev => [newSource, ...prev]);
+        setActiveSourceId(newSource.id);
+        setUploadStatus('success');
       }
-
-      const res = await fetch(WEBHOOK_URL, { 
-        method: 'POST', 
-        body: formData 
-      });
-
-      if (!res.ok) {
-        throw new Error(`Upload failed with status: ${res.status}`);
-      }
-
-      const result = await res.json().catch(() => ({}));
-      
-      const newSource: Source = {
-        id: Math.random().toString(36).substring(7),
-        name: uploadFile.name,
-        size: uploadFile.size,
-        type: uploadFile.type,
-        docType: uploadDocType,
-        uploadedAt: new Date(),
-        summary: result.summary || result.text || `Successfully processed ${uploadFile.name}. No summary was returned from the webhook.`
-      };
-
-      setSources(prev => [newSource, ...prev]);
-      setActiveSourceId(newSource.id);
-      setUploadStatus('success');
       
       setTimeout(() => {
         setIsUploadOpen(false);
@@ -203,8 +221,9 @@ export default function App() {
         setUploadEmail('');
       }, 1000);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setUploadError(err.message || 'An unexpected error occurred during upload.');
       setUploadStatus('error');
     }
   };
@@ -316,6 +335,14 @@ export default function App() {
                 </DialogHeader>
                 
                 <form onSubmit={handleUploadSubmit} className="space-y-6 py-4">
+                  {uploadError && (
+                    <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 text-destructive text-xs">
+                      <AlertCircle className="w-4 h-4" />
+                      <AlertTitle>Upload Error</AlertTitle>
+                      <AlertDescription>{uploadError}</AlertDescription>
+                    </Alert>
+                  )}
+                  
                   <div 
                     className={cn(
                       "relative border-2 border-dashed rounded-xl p-8 text-center transition-all",
