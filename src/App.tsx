@@ -60,7 +60,7 @@ import {
 import { cn } from '@/lib/utils';
 import { GoogleGenAI } from "@google/genai";
 
-const WEBHOOK_URL = 'YOUR_N8N_WEBHOOK_URL_HERE';
+const WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || '';
 
 let aiClient: GoogleGenAI | null = null;
 
@@ -166,10 +166,21 @@ export default function App() {
     formData.append('document_type', uploadDocType);
 
     try {
-      // Simulate webhook call
-      // const res = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (!WEBHOOK_URL || WEBHOOK_URL.includes('your-n8n-instance')) {
+        throw new Error('N8N Webhook URL is not configured. Please set VITE_N8N_WEBHOOK_URL in your .env file.');
+      }
 
+      const res = await fetch(WEBHOOK_URL, { 
+        method: 'POST', 
+        body: formData 
+      });
+
+      if (!res.ok) {
+        throw new Error(`Upload failed with status: ${res.status}`);
+      }
+
+      const result = await res.json().catch(() => ({}));
+      
       const newSource: Source = {
         id: Math.random().toString(36).substring(7),
         name: uploadFile.name,
@@ -177,7 +188,7 @@ export default function App() {
         type: uploadFile.type,
         docType: uploadDocType,
         uploadedAt: new Date(),
-        summary: `This is a simulated summary for ${uploadFile.name}. In a real app, this would come from the n8n webhook processing.`
+        summary: result.summary || result.text || `Successfully processed ${uploadFile.name}. No summary was returned from the webhook.`
       };
 
       setSources(prev => [newSource, ...prev]);
@@ -291,10 +302,10 @@ export default function App() {
 
           <div className="px-4 mb-4">
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-              <DialogTrigger asChild>
-                <Button className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-200 justify-start gap-2 h-11">
-                  <Plus className="w-4 h-4" /> Add Source
-                </Button>
+              <DialogTrigger render={
+                <Button className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-200 justify-start gap-2 h-11" />
+              }>
+                <Plus className="w-4 h-4" /> Add Source
               </DialogTrigger>
               <DialogContent className="bg-[#0a0b10] border-white/10 text-foreground max-w-lg">
                 <DialogHeader>
