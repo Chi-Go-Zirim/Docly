@@ -28,7 +28,7 @@ import {
   History,
   LayoutDashboard
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -60,7 +60,15 @@ import {
 import { cn } from '@/lib/utils';
 import { GoogleGenAI } from "@google/genai";
 
-const WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || '';
+const WEBHOOK_URL = (import.meta.env.VITE_N8N_WEBHOOK_URL || '').trim();
+
+// Helper to check if URL is a placeholder or invalid
+const isPlaceholderUrl = (url: string) => {
+  return !url || 
+         url.includes('your-n8n-instance') || 
+         url.includes('example.com') || 
+         url.includes('PLACEHOLDER');
+};
 
 let aiClient: GoogleGenAI | null = null;
 
@@ -105,9 +113,6 @@ export default function App() {
   
   // Upload Form State
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadName, setUploadName] = useState('');
-  const [uploadEmail, setUploadEmail] = useState('');
-  const [uploadDocType, setUploadDocType] = useState('research_paper');
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -127,6 +132,7 @@ export default function App() {
     if (e.target.files && e.target.files[0]) {
       setUploadFile(e.target.files[0]);
       setUploadStatus('idle');
+      setUploadError(null);
     }
   };
 
@@ -146,6 +152,7 @@ export default function App() {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       setUploadFile(e.dataTransfer.files[0]);
       setUploadStatus('idle');
+      setUploadError(null);
     }
   }, []);
 
@@ -161,24 +168,23 @@ export default function App() {
     setUploadStatus('uploading');
     setUploadError(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
     const formData = new FormData();
     formData.append('file', uploadFile);
-    formData.append('name', uploadName);
-    formData.append('email', uploadEmail);
-    formData.append('document_type', uploadDocType);
 
     try {
-      if (!WEBHOOK_URL || WEBHOOK_URL.includes('your-n8n-instance')) {
-        // Provide a clearer error or a graceful degradation
-        console.warn('Webhook not configured. Using simulation mode for demo.');
-        await new Promise(resolve => setTimeout(resolve, 1500));
+      if (isPlaceholderUrl(WEBHOOK_URL)) {
+        console.warn('Webhook not configured or using placeholder. Using simulation mode.');
+        await new Promise(resolve => setTimeout(resolve, 800));
         
         const newSource: Source = {
           id: Math.random().toString(36).substring(7),
           name: uploadFile.name,
           size: uploadFile.size,
           type: uploadFile.type,
-          docType: uploadDocType,
+          docType: 'General',
           uploadedAt: new Date(),
           summary: `[DEMO MODE] This is a simulated summary for ${uploadFile.name}. To use real processing, configure VITE_N8N_WEBHOOK_URL in your .env file.`
         };
@@ -189,11 +195,14 @@ export default function App() {
       } else {
         const res = await fetch(WEBHOOK_URL, { 
           method: 'POST', 
-          body: formData 
+          body: formData,
+          signal: controller.signal
         });
 
+        clearTimeout(timeoutId);
+
         if (!res.ok) {
-          throw new Error(`Upload failed with status: ${res.status}. Check your webhook configuration.`);
+          throw new Error(`Upload failed with status: ${res.status}. Check if your webhook is active.`);
         }
 
         const result = await res.json().catch(() => ({}));
@@ -203,7 +212,7 @@ export default function App() {
           name: uploadFile.name,
           size: uploadFile.size,
           type: uploadFile.type,
-          docType: uploadDocType,
+          docType: 'General',
           uploadedAt: new Date(),
           summary: result.summary || result.text || `Successfully processed ${uploadFile.name}. No summary was returned from the webhook.`
         };
@@ -217,13 +226,25 @@ export default function App() {
         setIsUploadOpen(false);
         setUploadStatus('idle');
         setUploadFile(null);
-        setUploadName('');
-        setUploadEmail('');
       }, 1000);
 
     } catch (err: any) {
-      console.error(err);
-      setUploadError(err.message || 'An unexpected error occurred during upload.');
+      clearTimeout(timeoutId);
+      console.error('Upload error details:', err);
+      
+      let errorMessage = err.message || 'An unexpected error occurred during upload.';
+      
+      if (err.name === 'AbortError') {
+        errorMessage = 'The upload took too long and timed out. Please check your internet connection or webhook server.';
+      } else if (err.message === 'Failed to fetch') {
+        errorMessage = 'Network Error: Failed to connect to the webhook. This could be due to CORS issues, a down server, or trying to hit an HTTP URL from an HTTPS site.';
+        
+        if (WEBHOOK_URL.startsWith('http://') && window.location.protocol === 'https:') {
+          errorMessage += ' (Mixed Content: Browser blocked a request to an insecure HTTP webhook from this HTTPS site. Please use HTTPS for your webhook.)';
+        }
+      }
+      
+      setUploadError(errorMessage);
       setUploadStatus('error');
     }
   };
@@ -321,9 +342,10 @@ export default function App() {
 
           <div className="px-4 mb-4">
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-              <DialogTrigger render={
-                <Button className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-200 justify-start gap-2 h-11" />
-              }>
+              <DialogTrigger className={cn(
+                buttonVariants({ variant: "ghost" }),
+                "w-full bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-200 justify-start gap-2 h-11"
+              )}>
                 <Plus className="w-4 h-4" /> Add Source
               </DialogTrigger>
               <DialogContent className="bg-[#0a0b10] border-white/10 text-foreground max-w-lg">
@@ -336,10 +358,54 @@ export default function App() {
                 
                 <form onSubmit={handleUploadSubmit} className="space-y-6 py-4">
                   {uploadError && (
-                    <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 text-destructive text-xs">
-                      <AlertCircle className="w-4 h-4" />
-                      <AlertTitle>Upload Error</AlertTitle>
-                      <AlertDescription>{uploadError}</AlertDescription>
+                    <div className="space-y-3">
+                      <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 text-destructive text-xs">
+                        <AlertCircle className="w-4 h-4" />
+                        <AlertTitle>Upload Error</AlertTitle>
+                        <AlertDescription>{uploadError}</AlertDescription>
+                      </Alert>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm" 
+                        className="w-full text-xs border-white/10 hover:bg-white/5"
+                        onClick={() => {
+                          setUploadStatus('idle');
+                          setUploadError(null);
+                          // Force simulation mode for this specific attempt
+                          setUploadStatus('uploading');
+                          setTimeout(async () => {
+                            if (!uploadFile) return;
+                            const newSource: Source = {
+                              id: Math.random().toString(36).substring(7),
+                              name: uploadFile.name,
+                              size: uploadFile.size,
+                              type: uploadFile.type,
+                              docType: 'General',
+                              uploadedAt: new Date(),
+                              summary: `[DEMO MODE] This is a simulated summary for ${uploadFile.name}. Webhook was bypassed due to connection errors.`
+                            };
+                            setSources(prev => [newSource, ...prev]);
+                            setActiveSourceId(newSource.id);
+                            setUploadStatus('success');
+                            setTimeout(() => {
+                              setIsUploadOpen(false);
+                              setUploadStatus('idle');
+                              setUploadFile(null);
+                            }, 1000);
+                          }, 800);
+                        }}
+                      >
+                        Try Simulation Mode Instead
+                      </Button>
+                    </div>
+                  )}
+
+                  {uploadStatus === 'success' && (
+                    <Alert className="bg-green-500/10 border-green-500/20 text-green-500 text-xs">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <AlertTitle>Success</AlertTitle>
+                      <AlertDescription>Document processed successfully!</AlertDescription>
                     </Alert>
                   )}
                   
@@ -382,30 +448,17 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-xs uppercase tracking-wider text-zinc-500">Name</Label>
-                      <Input value={uploadName} onChange={e => setUploadName(e.target.value)} className="bg-white/5 border-white/10" placeholder="Optional" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs uppercase tracking-wider text-zinc-500">Doc Type</Label>
-                      <Select value={uploadDocType} onValueChange={setUploadDocType}>
-                        <SelectTrigger className="bg-white/5 border-white/10">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-zinc-900 border-white/10">
-                          <SelectItem value="research_paper">Research Paper</SelectItem>
-                          <SelectItem value="invoice">Invoice</SelectItem>
-                          <SelectItem value="legal">Legal</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={!uploadFile || uploadStatus === 'uploading'}>
+                  <Button 
+                    type="submit" 
+                    className={cn(
+                      "w-full transition-all",
+                      uploadStatus === 'success' ? "bg-green-600 hover:bg-green-600" : "bg-primary hover:bg-primary/90"
+                    )} 
+                    disabled={!uploadFile || uploadStatus === 'uploading' || uploadStatus === 'success'}
+                  >
                     {uploadStatus === 'uploading' ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                    {uploadStatus === 'uploading' ? 'Uploading...' : 'Upload & Process'}
+                    {uploadStatus === 'success' ? <CheckCircle2 className="w-4 h-4 mr-2" /> : null}
+                    {uploadStatus === 'uploading' ? 'Analyzing Document...' : uploadStatus === 'success' ? 'Perfect!' : 'Upload & Process'}
                   </Button>
                 </form>
               </DialogContent>
